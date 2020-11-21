@@ -8,6 +8,7 @@ import (
 	"bufio"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -115,12 +116,12 @@ func (u *Upgrader) selectSubprotocol(r *http.Request, responseHeader http.Header
 // Upgrade upgrades the HTTP server connection to the WebSocket protocol.
 //
 // The responseHeader is included in the response to the client's upgrade
-// request. Use the responseHeader to specify cookies (Set-Cookie). To specify
-// subprotocols supported by the server, set Upgrader.Subprotocols directly.
+// request. Use the responseHeader to specify cookies (Set-Cookie) and the
+// application negotiated subprotocol (Sec-WebSocket-Protocol).
 //
 // If the upgrade fails, then Upgrade replies to the client with an HTTP error
 // response.
-func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header) (*Conn, error) {
+func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header, netConn net.Conn, brw *bufio.ReadWriter) (*Conn, error) {
 	const badHandshake = "websocket: the client is not using the websocket protocol: "
 
 	if !tokenListContainsValue(r.Header, "Connection", "upgrade") {
@@ -170,15 +171,15 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 		}
 	}
 
-	h, ok := w.(http.Hijacker)
-	if !ok {
-		return u.returnError(w, r, http.StatusInternalServerError, "websocket: response does not implement http.Hijacker")
-	}
-	var brw *bufio.ReadWriter
-	netConn, brw, err := h.Hijack()
-	if err != nil {
-		return u.returnError(w, r, http.StatusInternalServerError, err.Error())
-	}
+	// h, ok := w.(http.Hijacker)
+	// if !ok {
+	// 	return u.returnError(w, r, http.StatusInternalServerError, "websocket: response does not implement http.Hijacker")
+	// }
+	// // var brw *bufio.ReadWriter
+	// netConn, brw, err := h.Hijack()
+	// if err != nil {
+	// 	return u.returnError(w, r, http.StatusInternalServerError, err.Error())
+	// }
 
 	if brw.Reader.Buffered() > 0 {
 		netConn.Close()
@@ -251,7 +252,7 @@ func (u *Upgrader) Upgrade(w http.ResponseWriter, r *http.Request, responseHeade
 	if u.HandshakeTimeout > 0 {
 		netConn.SetWriteDeadline(time.Now().Add(u.HandshakeTimeout))
 	}
-	if _, err = netConn.Write(p); err != nil {
+	if _, err := netConn.Write(p); err != nil {
 		netConn.Close()
 		return nil, err
 	}
@@ -301,7 +302,7 @@ func Upgrade(w http.ResponseWriter, r *http.Request, responseHeader http.Header,
 		// allow all connections by default
 		return true
 	}
-	return u.Upgrade(w, r, responseHeader)
+	return u.Upgrade(w, r, responseHeader, nil, nil)
 }
 
 // Subprotocols returns the subprotocols requested by the client in the
